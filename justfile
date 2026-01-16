@@ -1,7 +1,12 @@
 set shell := ["bash", "-euc"]
 
+test:
+    cmake -S . -B build
+    cmake --build build
+    ./build/unit_tests
+
 fmt:
-    clang-format -i src/*.c include/*.h
+    find src include -name "*.c" -o -name "*.h" | xargs clang-format -i
 
 check:
     find src include -name "*.c" -o -name "*.h" | xargs clang-format --dry-run -Werror

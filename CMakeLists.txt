@@ -31,3 +31,12 @@ add_executable(wsl_mon
 target_include_directories(wsl_mon PRIVATE include)
 
 target_link_libraries(wsl_mon PRIVATE PkgConfig::GTK)
+
+add_executable(unit_tests
+        src/usb.c
+        tests/usb.c
+)
+
+target_include_directories(unit_tests PRIVATE include)
+
+target_link_libraries(unit_tests PRIVATE PkgConfig::GTK)

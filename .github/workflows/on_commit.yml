@@ -19,3 +19,6 @@ jobs:
 
       - name: check
         run: just check
+
+      - name: test
+        run: just test
