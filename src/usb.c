@@ -79,30 +79,29 @@ static void free_callback_data(gpointer data, GClosure *closure) {
   g_free(d);
 }
 
-static void add_usb_device_row(GtkGrid *grid, const int row, const char *bus_id,
-                               const char *name, const char *status) {
-  GtkWidget *bus_label = gtk_label_new(bus_id);
+static void add_usb_device_row(GtkGrid *grid, const int row, const UsbDevice *usb) {
+  GtkWidget *bus_label = gtk_label_new(usb->bus_id);
   gtk_label_set_xalign(GTK_LABEL(bus_label), 0);
   gtk_widget_set_hexpand(bus_label, TRUE);
 
-  GtkWidget *name_label = gtk_label_new(name);
+  GtkWidget *name_label = gtk_label_new(usb->name);
   gtk_label_set_xalign(GTK_LABEL(name_label), 0);
   gtk_widget_set_hexpand(name_label, TRUE);
 
-  GtkWidget *status_label = gtk_label_new(status);
+  GtkWidget *status_label = gtk_label_new(usb->status);
   gtk_label_set_xalign(GTK_LABEL(status_label), 0);
   gtk_widget_set_size_request(status_label, STATUS_WIDTH, -1);
 
   bool is_shared =
-      (strstr(status, "Shared") != NULL || strstr(status, "Attached") != NULL);
-  bool is_attached = (strstr(status, "Attached") != NULL);
+      (strstr(usb->status, "Shared") != NULL || strstr(usb->status, "Attached") != NULL);
+  bool is_attached = (strstr(usb->status, "Attached") != NULL);
 
   GtkWidget *button =
       gtk_button_new_with_label(is_attached ? "Detach" : "Attach");
   gtk_widget_set_sensitive(button, is_shared);
 
   UsbCallbackData *data = g_new0(UsbCallbackData, 1);
-  data->bus_id = g_strdup(bus_id);
+  data->bus_id = g_strdup(usb->bus_id);
   data->grid = grid;
 
   g_signal_connect_data(button, "clicked", G_CALLBACK(on_usb_toggle_clicked),
@@ -114,7 +113,7 @@ static void add_usb_device_row(GtkGrid *grid, const int row, const char *bus_id,
   gtk_grid_attach(GTK_GRID(grid), button, 3, row, 1, 1);
 }
 
-static bool parse_usb_line(const char *line, UsbDevice *out_dev) {
+static bool parse_usb_line(const char *line, UsbDevice *usb) {
   if (!g_ascii_isdigit(line[0]))
     return false;
 
@@ -126,8 +125,8 @@ static bool parse_usb_line(const char *line, UsbDevice *out_dev) {
     g_free(buf);
     return false;
   }
-  strncpy(out_dev->status, g_strstrip(status_start),
-          sizeof(out_dev->status) - 1);
+  strncpy(usb->status, g_strstrip(status_start),
+          sizeof(usb->status) - 1);
   *status_start = '\0';
 
   char *first_space = strchr(buf, ' ');
@@ -136,7 +135,7 @@ static bool parse_usb_line(const char *line, UsbDevice *out_dev) {
     return false;
   }
   *first_space = '\0';
-  strncpy(out_dev->bus_id, buf, sizeof(out_dev->bus_id) - 1);
+  strncpy(usb->bus_id, buf, sizeof(usb->bus_id) - 1);
 
   char *p = first_space + 1;
   while (*p == ' ')
@@ -148,7 +147,7 @@ static bool parse_usb_line(const char *line, UsbDevice *out_dev) {
     return false;
   }
 
-  strncpy(out_dev->name, g_strstrip(name_start), sizeof(out_dev->name) - 1);
+  strncpy(usb->name, g_strstrip(name_start), sizeof(usb->name) - 1);
 
   g_free(buf);
   return true;
@@ -168,7 +167,7 @@ void usb_populate_grid(GtkGrid *grid) {
 
   while (fgets(line, sizeof(line), pipe)) {
     if (parse_usb_line(line, &usb)) {
-      add_usb_device_row(grid, row, usb.bus_id, usb.name, usb.status);
+      add_usb_device_row(grid, row, &usb);
       row++;
     }
   }
