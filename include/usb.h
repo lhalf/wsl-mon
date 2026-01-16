@@ -3,6 +3,6 @@
 
 #include <gtk/gtk.h>
 
-void usb_populate_buttons(GtkBox *vbox);
+void usb_populate_grid(GtkGrid *grid);
 
 #endif // WSL_MON_USB_H
