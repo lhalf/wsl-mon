@@ -14,6 +14,12 @@
 
 typedef enum { ATTACH, DETACH } UsbAction;
 
+typedef struct {
+  char bus_id[16];
+  char name[256];
+  char status[64];
+} UsbDevice;
+
 static bool execute_usb_action(const char *bus_id, const UsbAction action) {
   char command[256];
   const char *base_cmd = action == ATTACH ? ATTACH_COMMAND : DETACH_COMMAND;
@@ -59,15 +65,15 @@ static void free_bus_id(gpointer data, GClosure *closure) {
 static void add_usb_device_row(GtkGrid *grid, const int row, const char *bus_id,
                                const char *name, const char *status) {
   GtkWidget *bus_label = gtk_label_new(bus_id);
-  gtk_label_set_xalign(GTK_LABEL(bus_label), 0.0);
+  gtk_label_set_xalign(GTK_LABEL(bus_label), 0);
   gtk_widget_set_hexpand(bus_label, TRUE);
 
   GtkWidget *name_label = gtk_label_new(name);
-  gtk_label_set_xalign(GTK_LABEL(name_label), 0.0);
+  gtk_label_set_xalign(GTK_LABEL(name_label), 0);
   gtk_widget_set_hexpand(name_label, TRUE);
 
   GtkWidget *status_label = gtk_label_new(status);
-  gtk_label_set_xalign(GTK_LABEL(status_label), 0.0);
+  gtk_label_set_xalign(GTK_LABEL(status_label), 0);
   gtk_widget_set_size_request(status_label, STATUS_WIDTH, -1);
 
   bool is_shared =
@@ -90,6 +96,46 @@ static void add_usb_device_row(GtkGrid *grid, const int row, const char *bus_id,
   gtk_grid_attach(GTK_GRID(grid), btn, 3, row, 1, 1);
 }
 
+static bool parse_usb_line(const char *line, UsbDevice *out_dev) {
+  if (!g_ascii_isdigit(line[0]))
+    return false;
+
+  char *buf = g_strdup(line);
+  g_strchomp(buf);
+
+  char *status_start = g_strrstr(buf, "  ");
+  if (!status_start) {
+    g_free(buf);
+    return false;
+  }
+  strncpy(out_dev->status, g_strstrip(status_start),
+          sizeof(out_dev->status) - 1);
+  *status_start = '\0';
+
+  char *first_space = strchr(buf, ' ');
+  if (!first_space) {
+    g_free(buf);
+    return false;
+  }
+  *first_space = '\0';
+  strncpy(out_dev->bus_id, buf, sizeof(out_dev->bus_id) - 1);
+
+  char *p = first_space + 1;
+  while (*p == ' ')
+    p++;
+
+  char *name_start = strchr(p, ' ');
+  if (!name_start) {
+    g_free(buf);
+    return false;
+  }
+
+  strncpy(out_dev->name, g_strstrip(name_start), sizeof(out_dev->name) - 1);
+
+  g_free(buf);
+  return true;
+}
+
 void usb_populate_grid(GtkGrid *grid) {
   FILE *pipe = popen(LIST_COMMAND, "r");
 
@@ -100,45 +146,13 @@ void usb_populate_grid(GtkGrid *grid) {
 
   char line[512];
   int row = 0;
+  UsbDevice usb;
+
   while (fgets(line, sizeof(line), pipe)) {
-    if (!g_ascii_isdigit(line[0]))
-      continue;
-
-    g_strchomp(line);
-
-    char *status_start = g_strrstr(line, "  ");
-    if (!status_start)
-      continue;
-
-    char *status = g_strstrip(g_strdup(status_start));
-
-    *status_start = '\0';
-
-    char *first_space = strchr(line, ' ');
-    if (!first_space) {
-      g_free(status);
-      continue;
+    if (parse_usb_line(line, &usb)) {
+      add_usb_device_row(grid, row, usb.bus_id, usb.name, usb.status);
+      row++;
     }
-
-    *first_space = '\0';
-    char *bus_id = line;
-
-    char *vid_pid_start = first_space + 1;
-    while (*vid_pid_start == ' ')
-      vid_pid_start++;
-
-    char *name_start = strchr(vid_pid_start, ' ');
-    if (!name_start) {
-      g_free(status);
-      continue;
-    }
-    char *name = g_strstrip(g_strdup(name_start));
-
-    add_usb_device_row(grid, row, bus_id, name, status);
-    row++;
-
-    g_free(name);
-    g_free(status);
   }
 
   pclose(pipe);
