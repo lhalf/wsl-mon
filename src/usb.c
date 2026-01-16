@@ -2,9 +2,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#define BUTTON_DELAY_MS 500
+
 #define BUTTON_WIDTH 80
 #define STATUS_WIDTH 100
-
 #define GRID_SPACING 5
 #define GRID_MARGIN 5
 
@@ -20,46 +21,62 @@ typedef struct {
   char status[64];
 } UsbDevice;
 
+typedef struct {
+  char *bus_id;
+  GtkGrid *grid;
+} UsbCallbackData;
+
 static bool execute_usb_action(const char *bus_id, const UsbAction action) {
   char command[256];
-  const char *base_cmd = action == ATTACH ? ATTACH_COMMAND : DETACH_COMMAND;
-
-  g_debug("%s", base_cmd);
+  const char *base_cmd = (action == ATTACH) ? ATTACH_COMMAND : DETACH_COMMAND;
 
   snprintf(command, sizeof(command), "%s %s 2>&1", base_cmd, bus_id);
-
   FILE *pipe = popen(command, "r");
 
-  if (!pipe) {
-    g_printerr("usbipd not found.");
+  if (!pipe)
     return false;
+
+  int status = pclose(pipe);
+
+  return (WIFEXITED(status) && WEXITSTATUS(status) == 0);
+}
+
+static gboolean refresh_ui_callback(gpointer user_data) {
+  GtkGrid *grid = GTK_GRID(user_data);
+
+  GtkWidget *child = gtk_widget_get_first_child(GTK_WIDGET(grid));
+  while (child != NULL) {
+    GtkWidget *next = gtk_widget_get_next_sibling(child);
+    gtk_grid_remove(grid, child);
+    child = next;
   }
 
-  g_debug("success");
+  usb_populate_grid(grid);
 
-  return pclose(pipe);
+  return G_SOURCE_REMOVE;
 }
 
 static void on_usb_toggle_clicked(GtkButton *button, gpointer user_data) {
-  char *bus_id = (char *)user_data;
+  const UsbCallbackData *data = user_data;
   const char *current_label = gtk_button_get_label(button);
 
-  if (g_strcmp0(current_label, "Attach") == 0) {
-    if (execute_usb_action(bus_id, ATTACH)) {
-      gtk_button_set_label(button, "Detach");
-    }
-  } else {
-    if (execute_usb_action(bus_id, DETACH)) {
-      gtk_button_set_label(button, "Attach");
-    }
-  }
+  gtk_widget_set_sensitive(GTK_WIDGET(button), FALSE);
 
-  gtk_widget_set_sensitive(GTK_WIDGET(button), TRUE);
+  UsbAction action =
+      (g_strcmp0(current_label, "Attach") == 0) ? ATTACH : DETACH;
+
+  if (execute_usb_action(data->bus_id, action)) {
+    g_timeout_add(BUTTON_DELAY_MS, refresh_ui_callback, data->grid);
+  } else {
+    gtk_widget_set_sensitive(GTK_WIDGET(button), TRUE);
+  }
 }
 
-static void free_bus_id(gpointer data, GClosure *closure) {
+static void free_callback_data(gpointer data, GClosure *closure) {
   (void)closure;
-  g_free(data);
+  UsbCallbackData *d = data;
+  g_free(d->bus_id);
+  g_free(d);
 }
 
 static void add_usb_device_row(GtkGrid *grid, const int row, const char *bus_id,
@@ -79,21 +96,22 @@ static void add_usb_device_row(GtkGrid *grid, const int row, const char *bus_id,
   bool is_shared =
       (strstr(status, "Shared") != NULL || strstr(status, "Attached") != NULL);
   bool is_attached = (strstr(status, "Attached") != NULL);
-  GtkWidget *btn = gtk_button_new_with_label(is_attached ? "Detach" : "Attach");
-  gtk_widget_set_sensitive(btn, is_shared);
-  gtk_widget_set_size_request(btn, BUTTON_WIDTH, -1);
 
-  if (!is_shared) {
-    gtk_widget_set_tooltip_text(btn, "Device must be bound in Windows first.");
-  }
+  GtkWidget *button =
+      gtk_button_new_with_label(is_attached ? "Detach" : "Attach");
+  gtk_widget_set_sensitive(button, is_shared);
 
-  g_signal_connect_data(btn, "clicked", G_CALLBACK(on_usb_toggle_clicked),
-                        g_strdup(bus_id), free_bus_id, 0);
+  UsbCallbackData *data = g_new0(UsbCallbackData, 1);
+  data->bus_id = g_strdup(bus_id);
+  data->grid = grid;
+
+  g_signal_connect_data(button, "clicked", G_CALLBACK(on_usb_toggle_clicked),
+                        data, free_callback_data, 0);
 
   gtk_grid_attach(GTK_GRID(grid), bus_label, 0, row, 1, 1);
   gtk_grid_attach(GTK_GRID(grid), name_label, 1, row, 1, 1);
   gtk_grid_attach(GTK_GRID(grid), status_label, 2, row, 1, 1);
-  gtk_grid_attach(GTK_GRID(grid), btn, 3, row, 1, 1);
+  gtk_grid_attach(GTK_GRID(grid), button, 3, row, 1, 1);
 }
 
 static bool parse_usb_line(const char *line, UsbDevice *out_dev) {
